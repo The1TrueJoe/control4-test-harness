@@ -32,3 +32,7 @@ pip install lupa cryptography
 ```
 
 Used by: [control4-tuya](https://github.com/The1TrueJoe/control4-tuya) (`test/`).
+
+## License
+
+MIT. Not affiliated with or endorsed by Control4 / Snap One.
