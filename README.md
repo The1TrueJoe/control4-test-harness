@@ -31,4 +31,4 @@ differently should still be checked on a controller.
 pip install lupa cryptography
 ```
 
-Used by: control4-tuya (`test/`).
+Used by: [control4-tuya](https://github.com/The1TrueJoe/control4-tuya) (`test/`).
