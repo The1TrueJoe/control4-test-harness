@@ -7,7 +7,9 @@ controller, with the parts of DriverWorks it provides:
   refused, as Director does), C4:HMAC, C4:Hash (SHA256, MD5), C4:Base64Encode/Decode,
   C4:JsonDecode, C4:SendToProxy, C4:SendToDevice, C4:GetDevicesByC4iName, C4:GetDeviceID,
   C4:UpdateProperty, C4:UpdatePropertyList, C4:AddVariable/SetVariable,
-  C4:PersistSetValue/GetValue, C4:CreateServer (records ports; feed UDP with broadcast()),
+  C4:PersistSetValue/GetValue, C4:CreateServer (records ports; feed UDP with broadcast(),
+  browse a TCP one with http_get()), C4:ServerSend, C4:ServerCloseClient,
+  C4:GetControllerNetworkAddress,
   C4:url (routed to a Python `web(method, url, headers, body)` you supply).
 
     d = Director(web=my_fake_service)
@@ -155,6 +157,7 @@ class Director:
         self.drivers = {}
         self.next_id = 100
         self.web = web or (lambda *a: (404, "{}"))
+        self.address = "192.0.2.10"  # what C4:GetControllerNetworkAddress answers
 
     def add(self, driver_lua, properties, filename):
         h = Harness(driver_lua, properties, director=self, filename=filename)
@@ -180,6 +183,8 @@ class Harness:
         self.persist = {}
         self.property_lists = {}
         self.servers = []
+        self.server_sent = {}  # handle -> bytes sent with C4:ServerSend
+        self.server_closed = set()
         self.lua = lua51.LuaRuntime(encoding=None, unpack_returned_tuples=True)
         self.sel = selectors.DefaultSelector()
         self.timers = []
@@ -292,6 +297,9 @@ class Harness:
             b"PersistGetValue": persist_get,
             b"CreateServer": create_server,
             b"DestroyServer": lambda *a: h.servers.clear(),
+            b"ServerSend": lambda _, handle, data: h.server_sent.__setitem__(int(handle), h.server_sent.get(int(handle), b"") + b(data)),
+            b"ServerCloseClient": lambda _, handle: h.server_closed.add(int(handle)),
+            b"GetControllerNetworkAddress": lambda _: h.director.address.encode(),
             b"UpdatePropertyList": update_property_list,
             b"Hash": lambda _, alg, d, o=None: hashlib.new(b(alg).decode().lower(), b(d)).digest(),
             b"Base64Encode": lambda _, d: base64.b64encode(b(d)),
@@ -331,7 +339,15 @@ class Harness:
         heapq.heappush(self.timers, (t.due, next(self.counter), t))
 
     def broadcast(self, data, ip):
+        """A UDP datagram arriving on one of the driver's servers."""
         self.g("OnServerDataIn")(1, data, ip.encode(), b"40000")
+
+    def http_get(self, port, path="/", handle=500):
+        """A browser fetching from a TCP server the driver opened with C4:CreateServer."""
+        self.server_sent.pop(handle, None)
+        self.g("OnServerConnectionStatusChanged")(handle, port, b"ONLINE")
+        self.g("OnServerDataIn")(handle, f"GET {path} HTTP/1.1\r\nHost: x\r\n\r\n".encode(), b"192.0.2.50", b"50000")
+        return self.server_sent.get(handle, b"")
 
     def run(self, seconds=0.2, until=None):
         if len(self.director.drivers) > 1:
